@@ -5,7 +5,7 @@ unit RecBinUnit2 platform;
 // E-MAIL: info@daniel-marschall.de                                               //
 // Web:    www.daniel-marschall.de & www.viathinksoft.de                          //
 ////////////////////////////////////////////////////////////////////////////////////
-// Revision: 01 NOV 2016                                                          //
+// Revision: 04 JUN 2023                                                          //
 // This unit is freeware, but please link to my website if you are using it!      //
 ////////////////////////////////////////////////////////////////////////////////////
 // Successfully tested with:                                                      //
@@ -18,7 +18,8 @@ unit RecBinUnit2 platform;
 // Windows 2003 Server EE SP1                                                     //
 // Windows Vista                                                                  //
 // Windows 7                                                                      //
-// Windows 10                                                                     //
+// Windows 10 (version 1 and version 2 format)                                    //
+// Windows 11                                                                     //
 ////////////////////////////////////////////////////////////////////////////////////
 
 // Delphi 7 Compatibility:  (TODO: compiler switches)
@@ -54,7 +55,7 @@ uses
   Windows, SysUtils, Classes, ContNrs, ShellAPI, Registry, Messages, Math;
 
 const
-  RECBINUNIT_VERSION = '2016-07-17';
+  RECBINUNIT_VERSION = '2023-06-04';
 
   RECYCLER_CLSID: TGUID = '{645FF040-5081-101B-9F08-00AA002F954E}';
   NULL_GUID:      TGUID = '{00000000-0000-0000-0000-000000000000}';
@@ -65,7 +66,12 @@ type
   EInvalidDrive = class(Exception);
 
   PSHQueryRBInfo = ^TSHQueryRBInfo;
+  {$IFDEF WIN64}
+  // ATTENTION! MUST NOT BE PACKED! Alignment for 64 bit must be 8 and for 32 bit must be 4
+  TSHQueryRBInfo = record
+  {$ELSE}
   TSHQueryRBInfo = packed record
+  {$ENDIF}
     cbSize      : DWORD;
     i64Size     : int64;
     i64NumItems : int64;
@@ -89,7 +95,7 @@ type
     property PhysicalFile: string read GetPhysicalFile;
     property SourceAnsi: AnsiString read FSourceAnsi;
     property SourceUnicode: WideString read FSourceUnicode;
-    property Source: string read GetSource; // will bei either ANSI or Unicode, sepending on the Delphi version
+    property Source: string read GetSource; // will bei either ANSI or Unicode, depending on the Delphi version
     property ID: string read FID;
     property SourceDrive: Char read FSourceDrive;
     property DeletionTime: TDateTime read FDeletionTime;
@@ -97,7 +103,7 @@ type
     property IndexFile: string read FIndexFile;
     property RemovedEntry: boolean read FRemovedEntry; // the file is NOT in the recycle bin anymore!
 
-    // Attention: There are not an official API calls. The delete and recover
+    // Attention: There are no official API calls. The delete and recover
     // functions might fail and/or damage the shell cache. Handle with care!
     function DeleteFile: boolean; virtual; abstract;
     function RecoverFile: boolean; virtual; abstract;
@@ -109,7 +115,7 @@ type
     procedure ReadFromStream(stream: TStream); override;
     function GetPhysicalFile: string; override;
   public
-    constructor Create(fs: TStream; AIndexFile: string);
+    constructor Create(fs: TStream; AIndexFile: string); reintroduce;
     function DeleteFile: boolean; override;
     // TODO: function RecoverFile: boolean; override;
     // TODO: function OpenFile: boolean; override;
@@ -120,7 +126,7 @@ type
     procedure ReadFromStream(stream: TStream); override;
     function GetPhysicalFile: string; override;
   public
-    constructor Create(fs: TStream; AIndexFile: string);
+    constructor Create(fs: TStream; AIndexFile: string); reintroduce;
     function DeleteFile: boolean; override;
     // TODO: function RecoverFile: boolean; override;
     // TODO: function OpenFile: boolean; override;
@@ -131,7 +137,7 @@ type
     procedure ReadFromStream(stream: TStream); override;
     function GetPhysicalFile: string; override;
   public
-    constructor Create(fs: TStream; AIndexFile, AID: string);
+    constructor Create(fs: TStream; AIndexFile, AID: string); reintroduce;
     function DeleteFile: boolean; override;
     // TODO: function RecoverFile: boolean; override;
     // TODO: function OpenFile: boolean; override;
@@ -160,7 +166,7 @@ type
   // TODO: Wie sieht es aus mit Laufwerken, die nur als Mount-Point eingebunden sind?
   TRbDrive = class(TObject)
   strict private
-    FDriveLetter: Char;
+    FDriveLetter: AnsiChar;
 
     function OldCapacityPercent(var res: integer): boolean; // in % (0-100)
     function NewCapacityAbsolute(var res: integer): boolean; // in MB
@@ -177,12 +183,12 @@ type
 
     // TODO: get drive serial
   public
-    constructor Create(ADriveLetter: Char);
+    constructor Create(ADriveLetter: AnsiChar);
 
     // Wenn UserSID='', dann werden alle Recycler gefunden
     procedure ListRecycleBins(list: TObjectList{TRbRecycleBin}; UserSID: string='');
 
-    property DriveLetter: Char read FDriveLetter;
+    property DriveLetter: AnsiChar read FDriveLetter;
     property VolumeGUID: TGUID read GetVolumeGUID;
     property VolumeGUIDAvailable: boolean read GetVolumeGUIDAvailable;
     function GetAPIInfo: TSHQueryRBInfo;
@@ -200,7 +206,7 @@ type
   TRecycleBinManager = class(TObject)
   public
     class procedure ListDrives(list: TObjectList{TRbDrive}); static;
-    class function RecycleBinPossible(Drive: Char): boolean; static;
+    class function RecycleBinPossible(Drive: AnsiChar): boolean; static;
 
     class function OwnRecyclersSize: int64; static;
     class function OwnRecyclersNumItems: int64; static;
@@ -355,22 +361,40 @@ resourcestring
   LNG_DRIVE_NOT_EXISTING = 'Drive %s does not exist.';
 
 const
+  {$IFDEF UNICODE}
+  C_SHEmptyRecycleBin = 'SHEmptyRecycleBinW';
+  C_SHQueryRecycleBin = 'SHQueryRecycleBinW';
+  C_GetVolumeNameForVolumeMountPoint = 'GetVolumeNameForVolumeMountPointW';
+  {$ELSE}
+  C_SHEmptyRecycleBin = 'SHEmptyRecycleBinA';
   C_SHQueryRecycleBin = 'SHQueryRecycleBinA';
   C_GetVolumeNameForVolumeMountPoint = 'GetVolumeNameForVolumeMountPointA';
-  C_SHEmptyRecycleBinA = 'SHEmptyRecycleBinA';
+  {$ENDIF}
   C_SHGetSettings = 'SHGetSettings';
   C_SHGetSetSettings = 'SHGetSetSettings';
 
 type
   TSHQueryRecycleBin = function(pszRootPath: LPCTSTR; var pSHQueryRBInfo: TSHQueryRBInfo): HRESULT; stdcall;
   TGetVolumeNameForVolumeMountPoint = function(lpszVolumeMountPoint: LPCTSTR; lpszVolumeName: LPTSTR; cchBufferLength: DWORD): BOOL; stdcall;
-  TSHEmptyRecycleBin = function(Wnd: HWND; pszRootPath: PChar; dwFlags: DWORD): HRESULT; stdcall;
-  TSHGetSettings = procedure(var lpss: SHELLSTATE; dwMask: DWORD) stdcall;
-  TSHGetSetSettings = procedure(var lpss: SHELLSTATE; dwMask: DWORD; bSet: BOOL) stdcall;
+  TSHEmptyRecycleBin = function(Wnd: HWND; pszRootPath: LPCTSTR; dwFlags: DWORD): HRESULT; stdcall;
+  TSHGetSettings = procedure(var lpss: SHELLSTATE; dwMask: DWORD); stdcall;
+  TSHGetSetSettings = procedure(var lpss: SHELLSTATE; dwMask: DWORD; bSet: BOOL); stdcall;
 
-function GetDriveGUID(driveLetter: Char; var guid: TGUID): DWORD;
+procedure AnsiRemoveNulChars(var s: AnsiString);
+begin
+  while (Length(s) > 0) and (s[Length(s)] = #0) do
+    s := Copy(s, 1, Length(s)-1);
+end;
+
+procedure UnicodeRemoveNulChars(var s: WideString);
+begin
+  while (Length(s) > 0) and (s[Length(s)] = #0) do
+    s := Copy(s, 1, Length(s)-1);
+end;
+
+function GetDriveGUID(driveLetter: AnsiChar; var guid: TGUID): DWORD;
 var
-  Buffer: array[0..50] of AnsiChar;
+  Buffer: array[0..50] of Char;
   x: string;
   PGetVolumeNameForVolumeMountPoint: TGetVolumeNameForVolumeMountPoint;
   RBHandle: THandle;
@@ -388,9 +412,9 @@ begin
       end
       else
       begin
-        if PGetVolumeNameForVolumeMountPoint(PAnsiChar(driveLetter+':\'), Buffer, SizeOf(Buffer)) then
+        if PGetVolumeNameForVolumeMountPoint(PChar(driveLetter+':\'), Buffer, SizeOf(Buffer)) then
         begin
-          x := buffer;
+          x := string(buffer);
           x := copy(x, 11, 38);
           guid := StringToGUID(x);
           result := ERROR_SUCCESS;
@@ -467,11 +491,11 @@ begin
   end;
 end;
 
-function DriveLetterToDriveNumber(driveLetter: Char): integer;
+function DriveLetterToDriveNumber(driveLetter: AnsiChar): integer;
 var
   tmp: string;
 begin
-  tmp := LowerCase(driveLetter);
+  tmp := LowerCase(string(driveLetter));
   result := Ord(tmp[1])-Ord('a');
 end;
 
@@ -695,12 +719,9 @@ function TRbRecycleBin.GetItem(id: string): TRbRecycleBinItem;
     try
       fs.Seek(0, soFromBeginning);
 
-      if fs.Size = SizeOf(TRbVistaRecord) then
+      if SameText(ExtractFileName(AFile), '$I'+id) then
       begin
-        if SameText(ExtractFileName(AFile), '$I'+id) then
-        begin
-          result := TRbVistaItem.Create(fs, AFile, id);
-        end;
+        result := TRbVistaItem.Create(fs, AFile, id);
       end
       else
       begin
@@ -795,26 +816,43 @@ procedure TRbRecycleBin.ListItems(list: TObjectList{TRbRecycleBinItem});
   var
     fs: TFileStream;
     infoHdr: TRbInfoHeader;
-    testID: string;
+    vistaId: string;
     wTest: TRbInfoWItem;
     bakPosition: int64;
+    testVistaItem: TRbVistaItem;
   begin
     fs := TFileStream.Create(AFile, fmOpenRead);
     try
       fs.Seek(0, soFromBeginning);
 
-      if fs.Size = SizeOf(TRbVistaRecord) then
+      {$REGION 'First try if it is a Vista index file'}
+      testVistaItem := nil;
+      if SameText(copy(ExtractFileName(AFile), 1, 2), '$I') then
       begin
-        testID := ExtractFileName(AFile);
-        if SameText(copy(testID, 1, 2), '$I') then
-          testID := copy(testID, 3, Length(testID)-2)
-        else
-          testID := ''; // Just in case the user wants to read a single Vista file, but without the $I name
-
-        list.Add(TRbVistaItem.Create(fs, AFile, testID));
+        vistaId := copy(AFile, 3, Length(AFile)-2);
+        testVistaItem := TRbVistaItem.Create(fs, AFile, vistaId);
       end
       else
       begin
+        vistaId := ''; // manual file that was not named $I..., so we cannot get $R... ID and therefore no physical file!
+        try
+          testVistaItem := TRbVistaItem.Create(fs, AFile, vistaId);
+          if (Copy(testVistaItem.Source,2,2) <> ':\') and
+             (Copy(testVistaItem.Source,2,2) <> '\\') then
+            FreeAndNil(testVistaItem);
+        except
+          testVistaItem := nil;
+        end;
+      end;
+      {$ENDREGION}
+
+      if Assigned(testVistaItem) then
+      begin
+        list.Add(testVistaItem);
+      end
+      else
+      begin
+        fs.Seek(0, soFromBeginning);
         if TolerantReading then
         begin
           // This is a special treatment how to recover data from an INFO/INFO2 file
@@ -831,10 +869,11 @@ procedure TRbRecycleBin.ListItems(list: TObjectList{TRbRecycleBinItem});
               // Try to read the Unicode record and check if it is valid
               // In case it is no Unicode record, then the Unicode part will be the
               // ANSI source name of the next record. In this case, we won't get
-              // a ':' at the Unicode string.
+              // a ':\' or '\\' at the Unicode string.
               bakPosition := fs.Position;
               wTest := TRbInfoWItem.Create(fs, AFile);
-              if Copy(wTest.SourceUnicode, 2, 1) = ':' then
+              if (Copy(wTest.SourceUnicode, 2, 2) = ':\') or
+                 (Copy(wTest.SourceUnicode, 2, 2) = '\\') then
               begin
                 // Yes, it is a valid Unicode record.
                 list.Add(wTest);
@@ -847,11 +886,16 @@ procedure TRbRecycleBin.ListItems(list: TObjectList{TRbRecycleBinItem});
                 list.Add(TRbInfoAItem.Create(fs, AFile));
               end;
             end
-            else
+            else if fs.Position + SizeOf(TRbInfoRecordA) <= fs.Size then
             begin
               // No, there is not enough space left for an Unicode record.
               // So we assume that the following record will be a valid ANSI record.
               list.Add(TRbInfoAItem.Create(fs, AFile));
+            end
+            else
+            begin
+              // Not enough space to read a ANSI record!
+              // Ignore it
             end;
           end;
         end
@@ -886,6 +930,7 @@ procedure TRbRecycleBin.ListItems(list: TObjectList{TRbRecycleBinItem});
     end;
   end;
 
+  // TODO: Nice would be some progress callback function
   procedure _HandleVistaDir(ADirectory: string);
   var
     SR: TSearchRec;
@@ -894,19 +939,25 @@ procedure TRbRecycleBin.ListItems(list: TObjectList{TRbRecycleBinItem});
   begin
     ADirectory := IncludeTrailingPathDelimiter(ADirectory);
 
-    if FindFirst(ADirectory + '$I*', faAnyFile, SR) = 0 then
+    //if FindFirst(ADirectory + '$I*', faAnyFile, SR) = 0 then
+    if FindFirst(ADirectory + '*', faAnyFile, SR) = 0 then
     begin
       repeat
-        id := sr.Name;
-        { id := ChangeFileExt(id, ''); }  // Removed code: We keep the file extention as part of the ID, because we do not know if the ID is otherwise unique
-        id := Copy(id, 3, Length(id)-2);
+        // FindFirst filter '$I*' finds the file '$RJK3R4P.~43~' and '$RJB99A3.~55~' (yes, $R !!!) Why?!
+        // ... so, we just filter for '*' and try to find the '$I*' files ourselves...
+        if UpperCase(Copy(sr.Name,1,2)) = '$I' then
+        begin
+          id := sr.Name;
+          { id := ChangeFileExt(id, ''); }  // Removed code: We keep the file extention as part of the ID, because we do not know if the ID is otherwise unique
+          id := Copy(id, 3, Length(id)-2);
 
-        fs := TFileStream.Create(ADirectory+sr.Name, fmOpenRead);
-        try
-          fs.Seek(0, soFromBeginning);
-          list.Add(TRbVistaItem.Create(fs, ADirectory+sr.Name, id));
-        finally
-          FreeAndNil(fs);
+          fs := TFileStream.Create(ADirectory+sr.Name, fmOpenRead);
+          try
+            fs.Seek(0, soFromBeginning);
+            list.Add(TRbVistaItem.Create(fs, ADirectory+sr.Name, id));
+          finally
+            FreeAndNil(fs);
+          end;
         end;
       until FindNext(SR) <> 0;
     end;
@@ -943,11 +994,11 @@ begin
   // see http://www.delphipraxis.net/post2933.html
   if not GetLogicalDrives and (1 shl DriveNumber) <> 0 then
   begin
-    raise EInvalidDrive.CreateFmt(LNG_DRIVE_NOT_EXISTING, [UpperCase(FDriveLetter)+':']);
+    raise EInvalidDrive.CreateFmt(LNG_DRIVE_NOT_EXISTING, [UpperCase(string(FDriveLetter))+':']);
   end;
 end;
 
-constructor TRbDrive.Create(ADriveLetter: Char);
+constructor TRbDrive.Create(ADriveLetter: AnsiChar);
 begin
   inherited Create;
 
@@ -1090,7 +1141,7 @@ begin
     // Er wird bei der ersten Änderung der Papierkorb-Einstellungen erstellt.
     if reg.OpenKeyReadOnly('SOFTWARE\Microsoft\Windows\CurrentVersion\explorer\BitBucket') then
     begin
-      if reg.OpenKeyReadOnly(FDriveLetter) then
+      if reg.OpenKeyReadOnly(string(FDriveLetter)) then
       begin
         if reg.ValueExists('Percent') then
         begin
@@ -1188,7 +1239,7 @@ begin
         // Er wird bei der ersten Änderung der Papierkorb-Einstellungen erstellt.
         if reg.OpenKeyReadOnly('SOFTWARE\Microsoft\Windows\CurrentVersion\explorer\BitBucket') then
         begin
-          if reg.OpenKeyReadOnly(FDriveLetter) then
+          if reg.OpenKeyReadOnly(string(FDriveLetter)) then
           begin
             if reg.ValueExists('NukeOnDelete') then
             begin
@@ -1250,8 +1301,8 @@ function TRbDrive.IsFAT: boolean;
 var
   Dummy2: DWORD;
   Dummy3: DWORD;
-  FileSystem: array[0..MAX_PATH] of char;
-  VolumeName: array[0..MAX_PATH] of char;
+  FileSystem: array[0..MAX_PATH-1] of char;
+  VolumeName: array[0..MAX_PATH-1] of char;
   s: string;
 begin
   s := FDriveLetter + DriveDelim + PathDelim; // ohne die Auslagerung in einen String kommt es zu einer AV in ntdll
@@ -1357,10 +1408,14 @@ end;
 procedure TRbInfoAItem.ReadFromStream(stream: TStream);
 var
   r: TRbInfoRecordA;
+  i: Integer;
 begin
   stream.ReadBuffer(r, SizeOf(r));
 
-  FSourceDrive := Chr(Ord('A') + r.sourceDrive);
+  if r.sourceDrive = 26 then
+    FSourceDrive := '@' // @ is the "Network home drive" of the Win95 time
+  else
+    FSourceDrive := Chr(Ord('A') + r.sourceDrive);
 
   // Win95 with IE4 and Win2000+:
   // Wenn ein Eintrag aus der INFO/INFO2 gelöscht wird, dann wird das erste Byte
@@ -1371,14 +1426,28 @@ begin
   if r.sourceAnsi[0] = #0 then
   begin
     FRemovedEntry := true;
-    r.sourceAnsi[0] := FSourceDrive;
+    if (r.sourceDrive = 26) and (r.sourceAnsi[1] = '\') then
+      r.sourceAnsi[0] := '\'
+    else
+      r.sourceAnsi[0] := AnsiChar(FSourceDrive);
   end;
 
   FSourceAnsi := r.sourceAnsi;
-  FSourceUnicode := r.sourceAnsi; // Unicode does not exist in INFO(1) structure
+
+  // Unicode does not exist in INFO(1) structure
+  (* FSourceUnicode := AnsiCharArrayToWideString(r.sourceAnsi); *)
+  SetLength(FSourceUnicode, Length(r.sourceAnsi));
+  for i := 0 to Length(r.sourceAnsi)-1 do
+    FSourceUnicode[i+1] := WideChar(r.sourceAnsi[i]);
+
   FID := IntToStr(r.recordNumber);
   FDeletionTime := FileTimeToDateTime(r.deletionTime);
   FOriginalSize := r.originalSize;
+
+  // Remove #0 at the end. There are some bugs where #0 is added to ANSI/Unicode read paths?! (probably in the ReadVista stuff)
+  // TODO: Instead of using this workaround, fix "SourceUnicode" and "SourceAnsi" in the first place!
+  AnsiRemoveNulChars(FSourceAnsi);
+  UnicodeRemoveNulChars(FSourceUnicode);
 end;
 
 function TRbInfoAItem.DeleteFile: boolean;
@@ -1404,7 +1473,7 @@ begin
 
   // e.g. C:\...\DC0.doc
   result := IncludeTrailingPathDelimiter(ExtractFilePath(IndexFile)) +
-            'D' + (* SourceDrive *) SourceAnsi[1] + ID + ExtractFileExt(SourceAnsi);
+            'D' + (* SourceDrive *) Source[1] + ID + ExtractFileExt(Source);
 end;
 
 constructor TRbInfoAItem.Create(fs: TStream; AIndexFile: string);
@@ -1432,14 +1501,30 @@ begin
   begin
     FRemovedEntry := true;
     r.sourceAnsi[0] := AnsiChar(r.sourceUnicode[0]);
+    (*
+    if (r.sourceDrive = 26) and (r.sourceAnsi[1] = '\') then
+      r.sourceAnsi[0] := '\'
+    else
+      r.sourceAnsi[0] := AnsiChar(FSourceDrive);
+    *)
   end;
 
   FSourceAnsi := r.sourceAnsi;
   FSourceUnicode := r.sourceUnicode;
   FID := IntToStr(r.recordNumber);
-  FSourceDrive := Chr(Ord('A') + r.sourceDrive);
+
+  if r.sourceDrive = 26 then
+    FSourceDrive := '@' // @ is the "Network home drive" of the Win95 time
+  else
+    FSourceDrive := Chr(Ord('A') + r.sourceDrive);
+
   FDeletionTime := FileTimeToDateTime(r.deletionTime);
   FOriginalSize := r.originalSize;
+
+  // Remove #0 at the end. There are some bugs where #0 is added to ANSI/Unicode read paths?! (probably in the ReadVista stuff)
+  // TODO: Instead of using this workaround, fix "SourceUnicode" and "SourceAnsi" in the first place!
+  AnsiRemoveNulChars(FSourceAnsi);
+  UnicodeRemoveNulChars(FSourceUnicode);
 end;
 
 function TRbInfoWItem.DeleteFile: boolean;
@@ -1500,16 +1585,69 @@ end;
 
 procedure TRbVistaItem.ReadFromStream(stream: TStream);
 var
-  r: TRbVistaRecord;
+  r1: TRbVistaRecord1;
+  r2: TRbVistaRecord2Head;
+  r2SourceUnicode: array of WideChar;
+  ver: int64;
+  i: Integer;
+resourcestring
+  LNG_VISTA_WRONG_FORMAT = 'Invalid Vista index format version %d at file %s';
 begin
-  stream.ReadBuffer(r, SizeOf(r));
+  stream.ReadBuffer(ver, SizeOf(ver));
 
-  FSourceAnsi := AnsiString(r.sourceUnicode); // Invalid chars are automatically converted into '?'
-  FSourceUnicode := r.sourceUnicode;
-  FID := ''; // will be added manually (at the constructor)
-  FSourceDrive := AnsiChar(r.sourceUnicode[1]);
-  FDeletionTime := FileTimeToDateTime(r.deletionTime);
-  FOriginalSize := r.originalSize;
+  if ver = 1 then
+  begin
+    stream.Seek(0, soBeginning);
+    stream.ReadBuffer(r1, SizeOf(r1));
+
+    (* FSourceAnsi := AnsiString(WideCharArrayToWideString(r1.sourceUnicode)); *)
+    SetLength(FSourceAnsi, Length(r1.sourceUnicode));
+    for i := 0 to Length(r1.sourceUnicode)-1 do
+      FSourceAnsi[i+1] := AnsiChar(r1.sourceUnicode[i]); // Note: Invalid chars are automatically converted into '?'
+
+    (* FSourceUnicode := WideCharArrayToWideString(r1.sourceUnicode); *)
+    SetLength(FSourceUnicode, Length(r1.sourceUnicode));
+    for i := 0 to Length(r1.sourceUnicode)-1 do
+      FSourceUnicode[i+1] := r1.sourceUnicode[i];
+
+    FID := ''; // will be added manually (at the constructor)
+    FSourceDrive := Char(r1.sourceUnicode[1]);
+    FDeletionTime := FileTimeToDateTime(r1.deletionTime);
+    FOriginalSize := r1.originalSize;
+  end
+  else if ver = 2 then
+  begin
+    stream.Seek(0, soBeginning);
+    stream.ReadBuffer(r2, SizeOf(r2));
+
+    SetLength(r2SourceUnicode, SizeOf(WideChar)*(r2.SourceCountChars-1));
+    stream.Read(r2SourceUnicode[0], SizeOf(WideChar)*(r2.sourceCountChars-1));
+
+    // Invalid chars are automatically converted into '?'
+    (* FSourceAnsi := AnsiString(WideCharArrayToWideString(r2sourceUnicode)); *)
+    SetLength(FSourceAnsi, Length(r2sourceUnicode));
+    for i := 0 to Length(r2sourceUnicode)-1 do
+      FSourceAnsi[i+1] := AnsiChar(r2sourceUnicode[i]);
+
+    (* FSourceUnicode := WideCharArrayToWideString(r2sourceUnicode); *)
+    SetLength(FSourceUnicode, Length(r2sourceUnicode));
+    for i := 0 to Length(r2sourceUnicode)-1 do
+      FSourceUnicode[i+1] := WideChar(r2sourceUnicode[i]);
+
+    FID := ''; // will be added manually (at the constructor)
+    FSourceDrive := Char(r2sourceUnicode[1]);
+    FDeletionTime := FileTimeToDateTime(r2.deletionTime);
+    FOriginalSize := r2.originalSize;
+  end
+  else
+  begin
+    raise Exception.CreateFmt(LNG_VISTA_WRONG_FORMAT, [ver, FID]);
+  end;
+
+  // Remove #0 at the end. There are some bugs where #0 is added to ANSI/Unicode read paths?! (probably in the ReadVista stuff)
+  // TODO: Instead of using this workaround, fix "SourceUnicode" and "SourceAnsi" in the first place!
+  AnsiRemoveNulChars(FSourceAnsi);
+  UnicodeRemoveNulChars(FSourceUnicode);
 end;
 
 function TRbVistaItem.DeleteFile: boolean;
@@ -1528,15 +1666,18 @@ end;
 function TRbVistaItem.GetPhysicalFile: string;
 begin
   result := FIndexFile;
-  result := StringReplace(Result, '$I', '$R', [rfIgnoreCase]);
+  if Pos('$I', Result) = 0 then
+    result := ''
+  else
+    result := StringReplace(Result, '$I', '$R', [rfIgnoreCase]);
 end;
 
 constructor TRbVistaItem.Create(fs: TStream; AIndexFile, AID: string);
 begin
   inherited Create;
-  ReadFromStream(fs);
   FIndexFile := AIndexFile;
   FID := AID;
+  ReadFromStream(fs);
 end;
 
 { TRecycleBinManager }
@@ -1552,7 +1693,7 @@ begin
   try
     if LibHandle <> 0 then
     begin
-      @PSHEmptyRecycleBin := GetProcAddress(LibHandle, C_SHEmptyRecycleBinA);
+      @PSHEmptyRecycleBin := GetProcAddress(LibHandle, C_SHEmptyRecycleBin);
       if @PSHEmptyRecycleBin <> nil then
       begin
         PSHEmptyRecycleBin(hInstance, nil, flags);
@@ -1734,7 +1875,7 @@ end;
 
 class procedure TRecycleBinManager.ListDrives(list: TObjectList{TRbDrive});
 var
-  drive: Char;
+  drive: AnsiChar;
 begin
   for drive := 'A' to 'Z' do
     if RecycleBinPossible(drive) then
@@ -1799,7 +1940,7 @@ begin
   end;
 end;
 
-class function TRecycleBinManager.RecycleBinPossible(Drive: Char): boolean;
+class function TRecycleBinManager.RecycleBinPossible(Drive: AnsiChar): boolean;
 var
   typ: Integer;
 begin
@@ -2280,9 +2421,11 @@ var
   reg: TRegistry;
   rbuf: array[0..255] of byte;
 
-  dwResult: DWORD;
+  //dwResult: DWORD;
+  lpdwResult: PDWORD_PTR;
 begin
   PSHGetSetSettings := nil;
+  lpdwResult := nil;
 
   RBHandle := LoadLibrary(shell32);
   try
@@ -2313,7 +2456,7 @@ begin
       SendMessageTimeout (
         HWND_BROADCAST, WM_SETTINGCHANGE,
         0, lParam (pChar ('ShellState')),
-        SMTO_ABORTIFHUNG, 5000, dwResult
+        SMTO_ABORTIFHUNG, 5000, lpdwResult(*dwResult*)
       );
     end
     else
@@ -2343,7 +2486,7 @@ begin
           SendMessageTimeout (
             HWND_BROADCAST, WM_SETTINGCHANGE,
             0, lParam (pChar ('ShellState')),
-            SMTO_ABORTIFHUNG, 5000, dwResult
+            SMTO_ABORTIFHUNG, 5000, lpdwResult(*dwResult*)
           );
 
           reg.CloseKey;

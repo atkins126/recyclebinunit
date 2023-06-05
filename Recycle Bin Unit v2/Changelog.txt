@@ -1,6 +1,29 @@
 
 === Changelog RecBinUnit v2 ===
 
+2023-04-06
++ Fixed a bug where a Vista data file ($R) was evaluated as index file ($I). Probably a bug in Delphi/WinAPI.
++ Demo application: Wait indicator added
++ Demo application: Tree can now be saved as TXT file
+
+2022-07-03
++ Added support for "Network home drives" recycle bin (from Win95 days)
+
+2022-07-02
++ Improved recognition of Vista+ index files which are not named with file name $I...
++ Fixed issues in FORMAT.md
+
+2022-06-30
++ Added support for $Ixxx "Vista" format 2 files (added somewhere in a Windows 10 build)
+  The difference towards $Ixxx "Vista" format 1 files is that the filename is not limited to MAX_PATH anymore. (New limit 0xFFFFFFFD)
++ RecyclerListing.exe (Demo application) marks missing physical files (happens for Vista format very often)
+  and can hide them
++ Added XP Theme to the demo application
++ Demo application: Feature to open a file or directory by double-clicking!
++ Unicode Ready
++ 64 bit Ready
++ Fixed TRbDrive.GetAPIInfo issue in for 64 bit (TSHQueryRBInfo struct had to be 8 byte aligned for x64)
+
 2016-11-01
 + Fixed memory leak in SID-Unit (thanks to Mikkao for finding this bug)
 

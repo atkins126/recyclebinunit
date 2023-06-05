@@ -9,7 +9,7 @@
 // E-MAIL: info@daniel-marschall.de                                               //
 // WEB:    www.daniel-marschall.de                                                //
 ////////////////////////////////////////////////////////////////////////////////////
-// Revision: 01 NOV 2016                                                          //
+// Revision: 30 Jun 2022                                                          //
 // This unit is freeware, but please link to my website if you are using it!      //
 ////////////////////////////////////////////////////////////////////////////////////
 // Successfully tested with:                                                      //
@@ -22,7 +22,8 @@
 // Windows 2003 Server EE SP1                                                     //
 // Windows Vista                                                                  //
 // Windows 7                                                                      //
-// Windows 10                                                                     //
+// Windows 10 (version 1 and version 2 format)                                    //
+// Windows 11                                                                     //
 ////////////////////////////////////////////////////////////////////////////////////
 //                                                                                //
 //  Needs Delphi 4 or higher. If you are using Delphi 4 or 5, you can not use the //
@@ -133,7 +134,12 @@ type
   EAPICallError = class(Exception);
 
   PSHQueryRBInfo = ^TSHQueryRBInfo;
+  {$IFDEF WIN64}
+  // ATTENTION! MUST NOT BE PACKED! Alignment for 64 bit must be 8 and for 32 bit must be 4
+  TSHQueryRBInfo = record
+  {$ELSE}
   TSHQueryRBInfo = packed record
+  {$ENDIF}
     cbSize      : dword;
     i64Size     : int64;
     i64NumItems : int64;
@@ -381,6 +387,7 @@ resourcestring
   LNG_API_CALL_ERROR = 'Error while calling the API. Additional information: "%s".';
   LNG_NOT_CALLABLE = '%s not callable';
   LNG_ERROR_CODE = '%s (Arguments: %s) returns error code %s';
+  LNG_UNEXPECTED_VISTA_FORMAT = 'Unexpeceted version %d of Vista index file';
 
 function _DeleteDirectory(const Name: string): boolean;
 var
@@ -843,8 +850,8 @@ function _isFAT(drive: char): boolean;
 var
   Dummy2: DWORD;
   Dummy3: DWORD;
-  FileSystem: array[0..MAX_PATH] of char;
-  VolumeName: array[0..MAX_PATH] of char;
+  FileSystem: array[0..MAX_PATH-1] of char;
+  VolumeName: array[0..MAX_PATH-1] of char;
   s: string;
 begin
   result := false;
@@ -860,9 +867,6 @@ end;
 // **********************************************************
 // VISTA AND WINDOWS 7 FUNCTIONS, INTERNAL USED
 // **********************************************************
-
-const
-  vista_valid_index_size = $220; // 544
 
 function _isFileVistaRealfile(filename: string): boolean;
 begin
@@ -918,10 +922,7 @@ begin
   begin
     if (sr.Name <> '.') and (sr.Name <> '..') then
     begin
-      if sr.Size = vista_valid_index_size then
-      begin
-        result.Add(copy(sr.name, 3, length(sr.name)-2));
-      end;
+      result.Add(copy(sr.name, 3, length(sr.name)-2));
     end;
     r := FindNext(sr);
   end;
@@ -952,6 +953,7 @@ function _VistaGetSourceDrive(infofile: string): char;
 var
   fs: TFileStream;
   tmp: string;
+  version: DWORD;
 const
   drive_vista_position = $18;
 begin
@@ -963,6 +965,9 @@ begin
 
   fs := TFileStream.Create(tmp, fmOpenRead);
   try
+    fs.ReadBuffer(version, 4);
+    if version > 2 then
+      raise Exception.CreateFmt(LNG_UNEXPECTED_VISTA_FORMAT, [version]);
     fs.seek(drive_vista_position, soFromBeginning);
     result := _readChar(fs);
   finally
@@ -975,6 +980,7 @@ function _VistaGetDateTime(infofile: string): TDateTime;
 var
   fs: TFileStream;
   tmp: string;
+  version: DWORD;
 const
   timestamp_vista_position = $10;
 begin
@@ -986,6 +992,9 @@ begin
 
   fs := TFileStream.Create(tmp, fmOpenRead);
   try
+    fs.ReadBuffer(version, 4);
+    if version > 2 then
+      raise Exception.CreateFmt(LNG_UNEXPECTED_VISTA_FORMAT, [version]);
     fs.seek(timestamp_vista_position, soFromBeginning);
     result := _fileTimeToDateTime(_readInt64(fs));
   finally
@@ -998,8 +1007,10 @@ function _VistaGetSourceUnicode(infofile: string): string;
 var
   fs: TFileStream;
   tmp: string;
+  version: DWORD;
 const
-  unicode_vista_position = $18;
+  unicode_vista_position_v1 = $18;
+  unicode_vista_position_v2 = $1C;
 begin
   result := '';
 
@@ -1009,7 +1020,14 @@ begin
 
   fs := TFileStream.Create(tmp, fmOpenRead);
   try
-    fs.seek(unicode_vista_position, soFromBeginning);
+    fs.ReadBuffer(version, 4);
+    if version = 2 then
+      // Note: This is not the official way to read the source. Actually, you should check the size and only read this specified size
+      fs.seek(unicode_vista_position_v2, soFromBeginning)
+    else if version = 1 then
+      fs.seek(unicode_vista_position_v1, soFromBeginning)
+    else
+      raise Exception.CreateFmt(LNG_UNEXPECTED_VISTA_FORMAT, [version]);
     result := _readNullTerminatedWideString(fs);
   finally
     fs.free;
@@ -1020,6 +1038,7 @@ function _VistaOriginalSize(infofile: string): integer;
 var
   fs: TFileStream;
   tmp: string;
+  version: DWORD;
 const
   size_vista_position = $8;
 begin
@@ -1031,6 +1050,9 @@ begin
 
   fs := TFileStream.Create(tmp, fmOpenRead);
   try
+    fs.ReadBuffer(version, 4);
+    if version > 2 then
+      raise Exception.CreateFmt(LNG_UNEXPECTED_VISTA_FORMAT, [version]);
     fs.seek(size_vista_position, soFromBeginning);
     result := _readInt32(fs);
   finally
@@ -1065,14 +1087,9 @@ function _VistaIsValid(infofile: string): boolean;
 var
   tmp: string;
 begin
-  result := false;
-
   tmp := infofile;
   tmp := _VistaChangeRealfileToIndexfile(tmp);
-  if not fileexists(tmp) then exit;
-
-  // Check the file length
-  result := _FileSize(tmp) = vista_valid_index_size;
+  result := fileexists(tmp);
 end;
 
 // **********************************************************
@@ -2114,14 +2131,18 @@ var
   PSHEmptyRecycleBin: TSHEmptyRecycleBin;
   LibHandle: THandle;
 const
-  C_SHEmptyRecycleBinA = 'SHEmptyRecycleBinA';
+  {$IFDEF UNICODE}
+  C_SHEmptyRecycleBin = 'SHEmptyRecycleBinW';
+  {$ELSE}
+  C_SHEmptyRecycleBin = 'SHEmptyRecycleBinA';
+  {$ENDIF}
 begin
   result := true;
   LibHandle := LoadLibrary(shell32) ;
   try
     if LibHandle <> 0 then
     begin
-      @PSHEmptyRecycleBin:= GetProcAddress(LibHandle, C_SHEmptyRecycleBinA);
+      @PSHEmptyRecycleBin:= GetProcAddress(LibHandle, C_SHEmptyRecycleBin);
       if @PSHEmptyRecycleBin <> nil then
       begin
         PSHEmptyRecycleBin(hInstance, nil, flags);
@@ -2199,7 +2220,7 @@ end;
 
 function RecyclerShellStateConfirmationDialogEnabled: boolean;
 type
-  TSHGetSettings = procedure (var lpss: SHELLSTATE; dwMask: DWORD) stdcall;
+  TSHGetSettings = procedure (var lpss: SHELLSTATE; dwMask: DWORD); stdcall;
 const
   C_SHGetSettings = 'SHGetSettings';
 var
@@ -2271,7 +2292,7 @@ end;
 
 procedure RecyclerConfirmationDialogSetEnabled(NewSetting: boolean);
 type
-  TSHGetSetSettings = procedure (var lpss: SHELLSTATE; dwMask: DWORD; bSet: BOOL) stdcall;
+  TSHGetSetSettings = procedure (var lpss: SHELLSTATE; dwMask: DWORD; bSet: BOOL); stdcall;
 const
   C_SHGetSetSettings = 'SHGetSetSettings';
 var
@@ -2283,9 +2304,11 @@ var
   reg: TRegistry;
   rbuf: array[0..255] of byte;
 
-  dwResult: DWORD;
+  //dwResult: DWORD;
+  lpdwResult: PDWORD_PTR;
 begin
   PSHGetSetSettings := nil;
+  lpdwResult := nil;
 
   RBHandle := LoadLibrary(shell32);
   if(RBHandle <> 0) then
@@ -2308,7 +2331,7 @@ begin
     SendMessageTimeout (
       HWND_BROADCAST, WM_SETTINGCHANGE,
       0, lParam (pChar ('ShellState')),
-      SMTO_ABORTIFHUNG, 5000, dwResult
+      SMTO_ABORTIFHUNG, 5000, lpdwResult(*dwResult*)
     );
   end
   else
@@ -2331,7 +2354,7 @@ begin
         SendMessageTimeout (
           HWND_BROADCAST, WM_SETTINGCHANGE,
           0, lParam (pChar ('ShellState')),
-          SMTO_ABORTIFHUNG, 5000, dwResult
+          SMTO_ABORTIFHUNG, 5000, lpdwResult(*dwResult*)
         );
 
         reg.CloseKey;
@@ -2678,7 +2701,7 @@ end;
 function RecyclerGlobalIsNukeOnDelete: boolean;
 var
   reg: TRegistry;
-  dump: string;
+  dump: AnsiString;
 const
   RES_DEFAULT = false;
 begin
@@ -2702,7 +2725,7 @@ begin
 
         // See comment at RecyclerSpecificIsNukeOnDelete()
 
-        dump := _registryReadDump(reg, 'PurgeInfo');
+        dump := AnsiString(_registryReadDump(reg, 'PurgeInfo'));
         result := GetAnsiCharBit(dump[68], 3);
       end
       else
@@ -2722,7 +2745,7 @@ end;
 function RecyclerSpecificIsNukeOnDelete(Drive: Char): boolean;
 var
   reg: TRegistry;
-  dump: string;
+  dump: AnsiString;
   d: Byte;
 const
   RES_DEFAULT = false;
@@ -2751,7 +2774,7 @@ begin
         begin
           // Windows 95 - Verschlüsselte Informationen liegen in PurgeInfo
 
-          dump := _registryReadDump(reg, 'PurgeInfo');
+          dump := AnsiString(_registryReadDump(reg, 'PurgeInfo'));
 
           // NOT tested, only theoretical! My idea about the possible structure is:
           //
@@ -2906,7 +2929,11 @@ begin
 end;
 
 const
+  {$IFDEF UNICODE}
+  C_SHQueryRecycleBin = 'SHQueryRecycleBinW';
+  {$ELSE}
   C_SHQueryRecycleBin = 'SHQueryRecycleBinA';
+  {$ENDIF}
 
 type
   TSHQueryRecycleBin = function(pszRootPath: LPCTSTR;
@@ -3135,7 +3162,7 @@ end;
 
 function RecyclerLibraryVersion: string;
 begin
-  result := 'ViaThinkSoft Recycle Bin Unit [01 JUL 2016]';
+  result := 'ViaThinkSoft Recycle Bin Unit [30 JUN 2022]';
 end;
 
 end.
